@@ -1,0 +1,8 @@
+_build
+*.so
+*.o
+*.d
+*.a
+.tool-versions
+ebin/
+rebar.lock
