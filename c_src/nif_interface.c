@@ -56,6 +56,7 @@ destroy(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   }
   // TODO: free all enif allocations
   hattrie_free(trie);
+  global_trie = NULL;
   return ok(env);
 }
 
@@ -67,8 +68,7 @@ count(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     return enif_make_badarg(env);
   }
   size_t c = hattrie_size(trie);
-  ERL_NIF_TERM result = enif_make_int(env, (int)c);
-  return ok2(env, result);
+  return enif_make_int(env, (int)c);
 }
 
 static ERL_NIF_TERM
@@ -79,8 +79,7 @@ bytes(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     return enif_make_badarg(env);
   }
   size_t c = hattrie_sizeof(trie);
-  ERL_NIF_TERM result = enif_make_int(env, (int)c);
-  return ok2(env, result);
+  return enif_make_int64(env, (long long)c);
 }
 
 
@@ -111,9 +110,12 @@ upsert(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   value_t* value_p = hattrie_get(trie, (char*)key.data, key.size);
   if(0 == (*value_p)) {
     result = enif_make_list(env, 0);
-  }else{
+  } else {
     ErlNifBinary* old_val= (ErlNifBinary*)(*value_p);
     result = enif_make_list(env, 1, enif_make_binary(env, old_val));
+    // free only 'old_val', but not old_val->data
+    // because old_val->data is copied to caller env
+    // hence will be garbage collected.
     enif_free(old_val);
   }
 
@@ -173,6 +175,25 @@ delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
     return enif_make_badarg(env);
   }
+  value_t* value_p = hattrie_tryget(trie, key.data, key.size);
+  if(0 == value_p) {
+    // no value
+    return ok(env);
+  }
+  if(0 == (*value_p)) {
+    // value deleted, TODO: check if this should happen if we never call hattrie_clear
+    return ok(env);
+  }
+  ErlNifBinary* bin = (ErlNifBinary*)(*value_p);
+
+  // hattrie_del may free seome tree nodes
+  // but it does not take care of values.
+  hattrie_del(trie, key.data, key.size);
+  // release binary data
+  enif_release_binary(bin->data);
+  // and the binary struct itself
+  enif_free(bin);
+
   return ok(env);
 }
 
