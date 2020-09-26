@@ -1,4 +1,5 @@
 -module(hattrie_tests).
+
 -include_lib("eunit/include/eunit.hrl").
 
 create_2_names_test() ->

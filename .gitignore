@@ -6,3 +6,4 @@ _build
 .tool-versions
 ebin/
 rebar.lock
+*.crashdump

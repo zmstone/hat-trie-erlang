@@ -56,6 +56,19 @@ mytrie_sizeof(mytrie_t* trie_p) {
   enif_rwlock_runlock(trie_p->rwlock);
 }
 
+bool
+mytrie_tryput(mytrie_t* trie_p, const char* key, size_t len, value_t new_value) {
+  enif_rwlock_rwlock(trie_p->rwlock);
+  value_t* value_p = hattrie_get(trie_p->trie, key, len);
+  value_t old_value = (*value_p);
+  bool should_put = (0 == old_value);
+  if (should_put) {
+    *value_p = new_value;
+  }
+  enif_rwlock_rwunlock(trie_p->rwlock);
+  return should_put;
+}
+
 value_t
 mytrie_upsert(mytrie_t* trie_p, const char* key, size_t len, value_t new_value) {
   enif_rwlock_rwlock(trie_p->rwlock);
@@ -67,7 +80,7 @@ mytrie_upsert(mytrie_t* trie_p, const char* key, size_t len, value_t new_value) 
 }
 
 value_t
-mytrie_tryget(mytrie_t* trie_p, const char* key, size_t len) {
+mytrie_lookup(mytrie_t* trie_p, const char* key, size_t len) {
   enif_rwlock_rlock(trie_p->rwlock);
   value_t* value_p = hattrie_tryget(trie_p->trie, key, len);
   value_t result = 0;
