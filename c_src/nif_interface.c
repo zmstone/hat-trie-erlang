@@ -3,23 +3,26 @@
 #include "hat-trie.h"
 
 static hattrie_t* find_by_name(ErlNifEnv*, int, const ERL_NIF_TERM*);
+static char* parse_arg_name(ErlNifEnv*, int, const ERL_NIF_TERM*, unsigned int*);
 static ERL_NIF_TERM ok(ErlNifEnv*);
 static ERL_NIF_TERM ok2(ErlNifEnv*, ERL_NIF_TERM);
 static ERL_NIF_TERM error(ErlNifEnv*, ERL_NIF_TERM);
 
 typedef char* TrieName;
 
-static hattrie_t* global_trie = NULL;
+// This is a map from names (from atom) to tries.
+static hattrie_t* name_to_trie = NULL;
 
 static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
+  name_to_trie = hattrie_create();
   // TODO initialize a global mapping from name to tries
   return 0;
 }
 
 static void
 unload(ErlNifEnv* env, void* priv) {
-  // TODO: release all tries
+  // do nothing
 }
 
 static int
@@ -36,27 +39,45 @@ upgrade(ErlNifEnv* env, void** priv, void** old_priv, ERL_NIF_TERM load_info) {
 
 static ERL_NIF_TERM
 create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-  hattrie_t* trie = find_by_name(env, argc, argv);
-  if(NULL != trie) {
-    // already created
+  unsigned int len = 0;
+  TrieName name = parse_arg_name(env, argc, argv, &len);
+  if(NULL == name) {
+    // failed to parse name arg
     return enif_make_badarg(env);
   }
-  // TODO start using name
-  global_trie = hattrie_create();
-  // TODO end
+  // TODO add lock
+  // get inserts it if not found
+  value_t* value_p = hattrie_get(name_to_trie, (char*)name, len);
+  enif_free(name);
+  if(0 != (*value_p)) {
+    // alrady created
+    return enif_make_badarg(env);
+  }
+  // create a new trie
+  hattrie_t* new_trie = hattrie_create();
+  (*value_p) = (value_t)(new_trie);
   return ok(env);
 }
 
 static ERL_NIF_TERM
 destroy(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-  hattrie_t* trie = find_by_name(env, argc, argv);
-  if(NULL == trie) {
-    // not found
+  unsigned int len = 0;
+  TrieName name = parse_arg_name(env, argc, argv, &len);
+  if(NULL == name) {
+    // failed to parse name arg
     return enif_make_badarg(env);
   }
-  // TODO: free all enif allocations
-  hattrie_free(trie);
-  global_trie = NULL;
+  // TODO add lock
+  value_t* value_p = hattrie_tryget(name_to_trie, (char*)name, len);
+  if(NULL == value_p) {
+    // not found
+    enif_free(name);
+    return enif_make_badarg(env);
+  }
+  hattrie_t* old_trie = (hattrie_t*)(*value_p);
+  hattrie_free(old_trie);
+  hattrie_del(name_to_trie, (char*)name, len);
+  enif_free(name);
   return ok(env);
 }
 
@@ -146,7 +167,7 @@ lookup(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
     return enif_make_badarg(env);
   }
-  value_t* value_p = hattrie_tryget(trie, key.data, key.size);
+  value_t* value_p = hattrie_tryget(trie, (char*)key.data, key.size);
   if(0 == value_p) {
     // no value
     return enif_make_list(env, 0);
@@ -175,7 +196,7 @@ delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
     return enif_make_badarg(env);
   }
-  value_t* value_p = hattrie_tryget(trie, key.data, key.size);
+  value_t* value_p = hattrie_tryget(trie, (char*)key.data, key.size);
   if(0 == value_p) {
     // no value
     return ok(env);
@@ -188,9 +209,9 @@ delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
   // hattrie_del may free seome tree nodes
   // but it does not take care of values.
-  hattrie_del(trie, key.data, key.size);
+  hattrie_del(trie, (char*)key.data, key.size);
   // release binary data
-  enif_release_binary(bin->data);
+  enif_release_binary(bin);
   // and the binary struct itself
   enif_free(bin);
 
@@ -214,21 +235,22 @@ error(ErlNifEnv* env, ERL_NIF_TERM result) {
 
 // Parse trie name from arg[0],
 // return NULL if failed to parse.
+// it allocates memory for name, caller should call enif_free after usage.
 static TrieName
-parse_arg_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+parse_arg_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], unsigned int *len) {
   // ensure one arg (the name) passed in
   if(argc == 0) {
     return NULL;
   }
   // get lenght of the name
-  unsigned int len = 0;
+  *len = 0;
   ERL_NIF_TERM name_term = argv[0];
-  if(0 == enif_get_atom_length(env, name_term, &len, ERL_NIF_LATIN1)) {
+  if(0 == enif_get_atom_length(env, name_term, len, ERL_NIF_LATIN1)) {
     return NULL;
   }
   // get the name
-  TrieName name = (TrieName)enif_alloc(len + 1);
-  if(0 == enif_get_atom(env, name_term, name, len + 1, ERL_NIF_LATIN1)) {
+  TrieName name = (TrieName)enif_alloc(*len + 1);
+  if(0 == enif_get_atom(env, name_term, name, *len + 1, ERL_NIF_LATIN1)) {
     enif_free(name);
     return NULL;
   }
@@ -239,13 +261,18 @@ parse_arg_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 // return NULL if faile to parse or not found.
 static hattrie_t*
 find_by_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-  TrieName name = parse_arg_name(env, argc, argv);
+  unsigned int len;
+  TrieName name = parse_arg_name(env, argc, argv, &len);
   if(NULL == name) {
     return NULL;
   }
-  // TODO find per-name trie
+  value_t* value_p = hattrie_tryget(name_to_trie, (char*)name, len);
   enif_free(name);
-  return global_trie;
+  if(NULL == value_p) {
+    // not found
+    return NULL;
+  }
+  return (hattrie_t*)(*value_p);
 }
 
 static ErlNifFunc nif_funcs[] = {

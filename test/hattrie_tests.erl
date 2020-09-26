@@ -1,6 +1,21 @@
 -module(hattrie_tests).
 -include_lib("eunit/include/eunit.hrl").
 
+create_2_names_test() ->
+  try
+    ?assertEqual(ok, hattrie:create(trie1)),
+    ?assertEqual(ok, hattrie:create(trie2)),
+
+    ?assertEqual([], hattrie:upsert(trie1, <<"key1">>, <<"value-a">>)),
+    ?assertEqual([], hattrie:upsert(trie2, <<"key1">>, <<"value-b">>)),
+
+    ?assertEqual([<<"value-a">>], hattrie:lookup(trie1, <<"key1">>)),
+    ?assertEqual([<<"value-b">>], hattrie:lookup(trie2, <<"key1">>))
+  after
+    hattrie:destroy(trie1),
+    hattrie:destroy(trie2)
+  end.
+
 crud_1_test() ->
   ?assertEqual(ok, hattrie:create(trie1)),
   try
