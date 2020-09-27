@@ -45,7 +45,7 @@ bench_1_test_() ->
    fun() ->
      ok = hattrie:create(trie1),
      ?assertEqual(0, hattrie:count(trie1)),
-     Topics = generate_topics("", [2, 8, 64, 10], []),
+     Topics = hattrie_test_lib:generate_levels([2, 8, 64, 10]),
      {T, ok} =
        timer:tc(fun() -> lists:foreach(fun(T) -> hattrie:upsert(trie1, T, <<0>>)
                                        end, Topics) end ),
@@ -64,15 +64,4 @@ bench_1_test_() ->
      io:format(standard_error, "~p seconds to insert ets\n", [T2/1000000])
    end}.
 
-generate_topics(Prefix, [], Acc) ->
-  [Prefix | Acc];
-generate_topics(Prefix, [N | Levels], Acc) ->
-  lists:foldl(
-    fun(_, AccIn) ->
-        generate_topics([Prefix, "/", random()], Levels, AccIn)
-    end, Acc, lists:seq(1, N)).
-
-random() ->
-  N = rand:uniform(32),
-  base64:encode(crypto:strong_rand_bytes(N)).
 
