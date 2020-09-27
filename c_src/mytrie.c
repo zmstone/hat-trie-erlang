@@ -45,15 +45,17 @@ mytrie_clear(mytrie_t* trie_p) {
 size_t
 mytrie_size(mytrie_t* trie_p) {
   enif_rwlock_rlock(trie_p->rwlock);
-  hattrie_size(trie_p->trie);
+  size_t result = hattrie_size(trie_p->trie);
   enif_rwlock_runlock(trie_p->rwlock);
+  return result;
 }
 
 size_t
 mytrie_sizeof(mytrie_t* trie_p) {
   enif_rwlock_rlock(trie_p->rwlock);
-  hattrie_sizeof(trie_p->trie);
+  size_t result = hattrie_sizeof(trie_p->trie);
   enif_rwlock_runlock(trie_p->rwlock);
+  return result;
 }
 
 bool
