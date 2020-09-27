@@ -6,6 +6,7 @@ create_2_names_test() ->
   try
     ?assertEqual(ok, hattrie:create(trie1)),
     ?assertEqual(ok, hattrie:create(trie2)),
+    ?assertException(error, badarg, hattrie:create(trie1)),
 
     ?assertEqual([], hattrie:upsert(trie1, <<"key1">>, <<"value-a">>)),
     ?assertEqual([], hattrie:upsert(trie2, <<"key1">>, <<"value-b">>)),
@@ -15,7 +16,8 @@ create_2_names_test() ->
   after
     hattrie:destroy(trie1),
     hattrie:destroy(trie2)
-  end.
+  end,
+  ?assertException(error, badarg, hattrie:destroy(trie1)).
 
 crud_1_test() ->
   ?assertEqual(ok, hattrie:create(trie1)),

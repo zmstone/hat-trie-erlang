@@ -1,3 +1,7 @@
+%% This test module uses proper to generate test data and operations,
+%% perfrom the same operations against both ETS and trie,
+%% then expect the same state.
+
 -module(hattrie_prop_tests).
 
 -define(EUNIT_NOAUTO, true).
