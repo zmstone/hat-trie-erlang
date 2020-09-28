@@ -64,4 +64,3 @@ bench_1_test_() ->
      io:format(standard_error, "~p seconds to insert ets\n", [T2/1000000])
    end}.
 
-
