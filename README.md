@@ -1,9 +1,9 @@
-hatrie
-=====
+# hattrie
 
-An OTP library
+Erlang binding (nif) for [hat-trie](https://github.com/dcjones/hat-trie)
 
-Build
------
+## Build & test
 
-    $ rebar3 compile
+```
+$ make
+```
