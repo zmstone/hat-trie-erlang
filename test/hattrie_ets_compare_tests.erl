@@ -53,12 +53,12 @@ worker_run(Type, Name, _Id) ->
 upsert(ets, Name, Key) ->
   hattrie_test_lib:foreach_prefix(Key, fun(Prefix) -> ets:insert(Name, {Prefix, <<>>}) end);
 upsert(trie, Name, Key) ->
-  hattrie:upsert(Name, Key, <<>>).
+  hattrie:upsert_segs(Name, hattrie_test_lib:split_levels(Key), <<>>).
 
 lookup(Type, Name, Key) ->
   F = case Type of
         ets -> fun(Prefix) -> ets:lookup(Name, Prefix) end;
-        trie -> fun(Prefix) -> hattrie:lookup(Name, Prefix) end
+        trie -> fun(Prefix) -> hattrie:lookup_segs(Name, hattrie_test_lib:split_levels(Prefix)) end
       end,
   hattrie_test_lib:foreach_prefix(Key, F).
 

@@ -1,4 +1,3 @@
-
 #include <string.h>
 #include "mytrie.h"
 #include "misc.h"
@@ -22,7 +21,7 @@ mytrie_create (const TrieName name){
   strncpy(lock_name + LOCK_NAME_PREFIX_LEN, name, name_len);
   mytrie_t* trie_p = malloc_or_die(sizeof(mytrie_t));
   trie_p->trie = hattrie_create();
-  trie_p->rwlock = enif_rwlock_create(name);
+  trie_p->rwlock = enif_rwlock_create(lock_name);
   // erts copies the name, so we should free here
   free(lock_name);
   return trie_p;

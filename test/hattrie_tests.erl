@@ -6,7 +6,7 @@ create_2_names_test() ->
   try
     ?assertEqual(ok, hattrie:create(trie1)),
     ?assertEqual(ok, hattrie:create(trie2)),
-    ?assertException(error, badarg, hattrie:create(trie1)),
+    ?assertException(error, already_created, hattrie:create(trie1)),
 
     ?assertEqual([], hattrie:upsert(trie1, <<"key1">>, <<"value-a">>)),
     ?assertEqual([], hattrie:upsert(trie2, <<"key1">>, <<"value-b">>)),
@@ -17,7 +17,7 @@ create_2_names_test() ->
     hattrie:destroy(trie1),
     hattrie:destroy(trie2)
   end,
-  ?assertException(error, badarg, hattrie:destroy(trie1)).
+  ?assertException(error, no_such_trie, hattrie:destroy(trie1)).
 
 crud_1_test() ->
   ?assertEqual(ok, hattrie:create(trie1)),
@@ -64,3 +64,13 @@ bench_1_test_() ->
      io:format(standard_error, "~p seconds to insert ets\n", [T2/1000000])
    end}.
 
+seg_add_lookup_delete_test() ->
+  hattrie:clear_segs(),
+  ?assertEqual(<<1>>, hattrie:add_seg(<<"seg1">>)),
+  ?assertEqual(<<1>>, hattrie:find_seg(<<"seg1">>)),
+  ?assertEqual(undefined, hattrie:find_seg(<<"seg2">>)),
+  ?assertEqual(ok, hattrie:del_seg(<<"seg2">>)),
+  ?assertEqual(ok, hattrie:del_seg(<<"seg1">>)),
+  hattrie:clear_segs().
+
+%% TODO test word dict reference count

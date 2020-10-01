@@ -1,14 +1,18 @@
 #include <string.h>
 #include "erl_nif.h"
 #include "mytrie.h"
+#include "mydict.h"
+#include "varint.h"
 
-static mytrie_t* find_by_name(ErlNifEnv*, int, const ERL_NIF_TERM*);
-static char* parse_arg_name(ErlNifEnv*, int, const ERL_NIF_TERM*, unsigned int*);
+static mytrie_t* find_by_name(ErlNifEnv*, int, const ERL_NIF_TERM*, ERL_NIF_TERM*);
 static ERL_NIF_TERM ok(ErlNifEnv*);
 static ERL_NIF_TERM ok2(ErlNifEnv*, ERL_NIF_TERM);
 static ERL_NIF_TERM error(ErlNifEnv*, ERL_NIF_TERM);
+static ERL_NIF_TERM exception(ErlNifEnv*, const char*);
 
 typedef char* TrieName;
+static TrieName parse_arg_name(ErlNifEnv*, int, const ERL_NIF_TERM*, unsigned int*);
+static char* parse_arg_seg(ErlNifEnv*, int, const ERL_NIF_TERM*, unsigned int*, ERL_NIF_TERM*);
 
 // This is a map from names (from atom) to tries.
 static mytrie_t* name_to_trie = NULL;
@@ -16,12 +20,14 @@ static mytrie_t* name_to_trie = NULL;
 static int
 load(ErlNifEnv* env, void** priv, ERL_NIF_TERM load_info) {
   name_to_trie = mytrie_create("hattrie-names");
+  mydict_init();
   return 0;
 }
 
 static void
 unload(ErlNifEnv* env, void* priv) {
-  // do nothing
+  // TODO iterate over trie names, destroy all tries
+  // TODO destroy mydict
 }
 
 static int
@@ -42,7 +48,7 @@ create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   TrieName name = parse_arg_name(env, argc, argv, &len);
   if(NULL == name) {
     // failed to parse name arg
-    return enif_make_badarg(env);
+    return exception(env, "bad_trie_name");
   }
   // create a new trie
   mytrie_t* new_trie = mytrie_create(name);
@@ -53,7 +59,7 @@ create(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   }
   // failed to put
   mytrie_free(new_trie);
-  return enif_make_badarg(env);
+  return exception(env, "already_created");
 }
 
 static ERL_NIF_TERM
@@ -62,13 +68,13 @@ destroy(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   TrieName name = parse_arg_name(env, argc, argv, &len);
   if(NULL == name) {
     // failed to parse name arg
-    return enif_make_badarg(env);
+    return exception(env, "bad_trie_name");
   }
   value_t value_p = mytrie_lookup(name_to_trie, (char*)name, len);
   if(0 == value_p) {
     // not found
     enif_free(name);
-    return enif_make_badarg(env);
+    return exception(env, "no_such_trie");
   }
   mytrie_t* old_trie = (mytrie_t*)value_p;
   mytrie_free(old_trie);
@@ -79,10 +85,11 @@ destroy(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
 static ERL_NIF_TERM
 count(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-  mytrie_t* trie = find_by_name(env, argc, argv);
+  ERL_NIF_TERM excep;
+  mytrie_t* trie = find_by_name(env, argc, argv, &excep);
   if(NULL == trie) {
     // not found
-    return enif_make_badarg(env);
+    return excep;
   }
   size_t c = mytrie_size(trie);
   return enif_make_int(env, (int)c);
@@ -90,10 +97,11 @@ count(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
 
 static ERL_NIF_TERM
 bytes(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
-  mytrie_t* trie = find_by_name(env, argc, argv);
+  ERL_NIF_TERM excep;
+  mytrie_t* trie = find_by_name(env, argc, argv, &excep);
   if(NULL == trie) {
     // not found
-    return enif_make_badarg(env);
+    return excep;
   }
   size_t c = mytrie_sizeof(trie);
   return enif_make_int64(env, (long long)c);
@@ -119,26 +127,27 @@ copy_binary(ErlNifBinary* input) {
 
 
 // Create or update a key.
-// Return [] if not value before, otherwise [Value].
+// Return [] if key is not found, otherwise [OldValue].
 static ERL_NIF_TERM
 upsert(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(argc != 3) {
     return enif_make_badarg(env);
   }
-  mytrie_t* trie = find_by_name(env, argc, argv);
+  ERL_NIF_TERM excep;
+  mytrie_t* trie = find_by_name(env, argc, argv, &excep);
   if(NULL == trie) {
     // not found
-    return enif_make_badarg(env);
+    return excep;
   }
   // get key input
   ErlNifBinary key;
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
-    return enif_make_badarg(env);
+    return exception(env, "bad_key");
   }
   // get value input
   ErlNifBinary new_val;
   if(0 == enif_inspect_iolist_as_binary(env, argv[2], &new_val)) {
-    return enif_make_badarg(env);
+    return exception(env, "bad_val");
   }
 
   // make a copy of the input binary
@@ -168,15 +177,16 @@ lookup(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(argc != 2) {
     return enif_make_badarg(env);
   }
-  mytrie_t* trie = find_by_name(env, argc, argv);
+  ERL_NIF_TERM excep;
+  mytrie_t* trie = find_by_name(env, argc, argv, &excep);
   if(NULL == trie) {
     // not found
-    return enif_make_badarg(env);
+    return excep;
   }
   // get key input
   ErlNifBinary key;
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
-    return enif_make_badarg(env);
+    return exception(env, "bad_key");
   }
   value_t value_p = mytrie_lookup(trie, (char*)key.data, key.size);
   if(0 == value_p) {
@@ -194,15 +204,16 @@ delete(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
   if(argc != 2) {
     return enif_make_badarg(env);
   }
-  mytrie_t* trie = find_by_name(env, argc, argv);
+  ERL_NIF_TERM excep;
+  mytrie_t* trie = find_by_name(env, argc, argv, &excep);
   if(NULL == trie) {
     // trie name not found
-    return enif_make_badarg(env);
+    return excep;
   }
   // get key input
   ErlNifBinary key;
   if(0 == enif_inspect_iolist_as_binary(env, argv[1], &key)) {
-    return enif_make_badarg(env);
+    return exception(env, "bad_key");
   }
   value_t old_value_p = mytrie_delete(trie, (char*)key.data, key.size);
   if(0 != old_value_p) {
@@ -230,9 +241,14 @@ error(ErlNifEnv* env, ERL_NIF_TERM result) {
   return enif_make_tuple2(env, enif_make_atom(env, "error"), result);
 }
 
-// Parse trie name from arg[0],
-// return NULL if failed to parse.
-// it allocates memory for name, caller should call enif_free after usage.
+static ERL_NIF_TERM
+exception(ErlNifEnv* env, const char* reason) {
+  return enif_raise_exception(env, enif_make_atom(env, reason));
+}
+
+// Parse char* string from atom arg[0].
+// Return NULL if failed to parse.
+// It allocates memory for name, caller should call enif_free after usage.
 static TrieName
 parse_arg_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], unsigned int *len) {
   // ensure one arg (the name) passed in
@@ -254,22 +270,111 @@ parse_arg_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], unsigned int
   return name;
 }
 
+// Parse char* string from binary arg[0].
+// Return NULL if failed to parse.
+// No need for manual deallocation of the returned pointer.
+static char*
+parse_arg_seg(ErlNifEnv* env,
+              int argc,
+              const ERL_NIF_TERM argv[],
+              unsigned int *len,
+              ERL_NIF_TERM* excep) {
+  // ensure one arg (the name) passed in
+  if(argc == 0) {
+    *excep = enif_make_badarg(env);
+    return NULL;
+  }
+  // get key input
+  ErlNifBinary word;
+  if(0 == enif_inspect_iolist_as_binary(env, argv[0], &word)) {
+    *excep = exception(env, "bad_word");
+    return NULL;
+  }
+  return (char*)(word.data);
+}
+
 // Parse trie name from arg[0], and find the trie for it,
 // return NULL if faile to parse or not found.
 static mytrie_t*
-find_by_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+find_by_name(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[], ERL_NIF_TERM* excep) {
   unsigned int len;
   TrieName name = parse_arg_name(env, argc, argv, &len);
   if(NULL == name) {
+    *excep = exception(env, "bad_trie_name");
     return NULL;
   }
   value_t value_p = mytrie_lookup(name_to_trie, (char*)name, len);
   enif_free(name);
   if(0 == value_p) {
     // not found
+    *excep = exception(env, "no_such_trie");
     return NULL;
   }
+  *excep = NULL;
   return (mytrie_t*)value_p;
+}
+
+static ERL_NIF_TERM
+encode_index(ErlNifEnv* env, index_t index) {
+  int varint_len = varint_encoding_length(index);
+  ErlNifBinary* res = enif_alloc(sizeof(ErlNifBinary));
+  if(NULL == res) {
+    return enif_raise_exception(env, enif_make_atom(env, "oom"));
+  }
+  if(0 == enif_alloc_binary(varint_len, res)) {
+    enif_free(res);
+    return enif_raise_exception(env, enif_make_atom(env, "oom"));
+  }
+  varint_encode(index, res->data, res->size);
+  return enif_make_binary(env, res);
+}
+
+static ERL_NIF_TERM
+find_seg(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+  unsigned int len;
+  ERL_NIF_TERM excep;
+  char* word = parse_arg_seg(env, argc, argv, &len, &excep);
+  if(NULL == word) {
+    return excep;
+  }
+  index_t index = mydict_find(word);
+  if(0 == index){
+    return enif_make_atom(env, "undefined");
+  }
+  return encode_index(env, index);
+}
+
+static ERL_NIF_TERM
+clear_segs(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+  mydict_free();
+  return enif_make_atom(env, "ok");
+}
+
+static ERL_NIF_TERM
+add_seg(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+  unsigned int len;
+  ERL_NIF_TERM excep;
+  char* word = parse_arg_seg(env, argc, argv, &len, &excep);
+  if(NULL == word) {
+    return excep;
+  }
+  index_t index = mydict_add(word);
+  if(0 == index) {
+    return enif_raise_exception(env, enif_make_atom(env, "bug"));
+  }
+  return encode_index(env, index);
+}
+
+static ERL_NIF_TERM
+del_seg(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+  unsigned int len;
+  ERL_NIF_TERM excep;
+  char* word = parse_arg_seg(env, argc, argv, &len, &excep);
+  if(NULL == word) {
+    return excep;
+  }
+  mydict_del(word);
+  return ok(env);
 }
 
 static ErlNifFunc nif_funcs[] = {
@@ -282,7 +387,12 @@ static ErlNifFunc nif_funcs[] = {
    {"count",   1, count},
    {"bytes",   1, bytes},
 
-   {"destroy", 1, destroy}
+   {"destroy", 1, destroy},
+
+   {"add_seg", 1, add_seg},
+   {"del_seg", 1, del_seg},
+   {"find_seg", 1, find_seg},
+   {"clear_segs", 0, clear_segs}
 };
 
 ERL_NIF_INIT(hattrie, nif_funcs, &load, &reload, &upgrade, &unload);

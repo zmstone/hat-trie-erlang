@@ -1,7 +1,8 @@
 -module(hattrie_test_lib).
 
 -export([generate_levels/1,
-         foreach_prefix/2]).
+         foreach_prefix/2,
+         split_levels/1]).
 
 generate_levels(Levels) ->
   generate_levels("", Levels, []).
@@ -26,8 +27,11 @@ random() ->
   Bin = binary:replace(Bin0, <<"/">>, <<"-">>, [global]),
   hd(binary:split(Bin, <<"=">>, [trim])).
 
+split_levels(Key) ->
+  binary:split(Key, <<"/">>, [global]).
+
 foreach_prefix(Key, Fun) ->
-  Segs = binary:split(Key, <<"/">>, [global]),
+  Segs = split_levels(Key),
   foreach_prefix(tl(Segs), Fun, hd(Segs)).
 
 foreach_prefix(Segs, Fun, Prefix) ->
