@@ -4,7 +4,7 @@
 %% In trie, it is only "a/b/c" stored, however in ETS, it has to enumerate
 %% all prefixes and store them all (i.e. "a", "a/b", and "a/b/c")
 
--module(hatrie_ets_compare_tests).
+-module(hattrie_ets_compare_tests).
 
 -include_lib("eunit/include/eunit.hrl").
 
